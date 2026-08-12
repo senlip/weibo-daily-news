@@ -96,7 +96,7 @@ def _clean_snippet(raw: str) -> str:
 
 def _fetch_bing(keyword: str) -> str:
     url = ("https://www.bing.com/search?q=" + urllib.parse.quote(keyword)
-           + "&cc=cn&mkt=zh-CN&setlang=zh-hans&ensearch=0")
+           + "&cc=cn&mkt=zh-CN&setlang=zh-hans")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -105,7 +105,10 @@ def _fetch_bing(keyword: str) -> str:
     with urllib.request.urlopen(req, timeout=15) as resp:
         html = resp.read().decode("utf-8", "ignore")
     m = re.search(r'<p class="b_lineclamp[^"]*"[^>]*>(.*?)</p>', html, re.S)
-    return _clean_snippet(m.group(1)) if m else ""
+    if not m:
+        print(f"    [bing] {keyword[:20]}: 无b_lineclamp, len={len(html)}, 开头={html[:120]!r}", file=sys.stderr)
+        return ""
+    return _clean_snippet(m.group(1))
 
 
 def _fetch_duckduckgo(keyword: str) -> str:
@@ -120,8 +123,9 @@ def _fetch_duckduckgo(keyword: str) -> str:
         html = resp.read().decode("utf-8", "ignore")
     m = re.search(r'<td class="result-snippet">(.*?)</td>', html, re.S)
     if not m:
-        m = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', html, re.S)
-    return _clean_snippet(m.group(1)) if m else ""
+        print(f"    [ddg] {keyword[:20]}: 无result-snippet, len={len(html)}, 开头={html[:120]!r}", file=sys.stderr)
+        return ""
+    return _clean_snippet(m.group(1))
 
 
 def fetch_summary(keyword: str) -> str:
