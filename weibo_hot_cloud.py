@@ -75,25 +75,36 @@ def fetch_hot():
     return realtime, hotgov
 
 
-# 垃圾摘要特征（词典释义、银行导航页等与热搜无关的干扰结果）
+# 垃圾摘要特征（词典释义、银行导航页、网站模板等与热搜无关的干扰结果）
 GARBAGE_MARKS = [
+    # 中文词典/工具页
     "汉语一", "汉语二", "通用规范汉字", "说文解字", "康熙字典", "甲骨文",
     "六书", "读作", "读为", "音切", "本义为", "始见于",
     "外汇牌价", "存/贷款利率", "CFETS", "远期外汇", "债券指数",
-    "加入收藏", "网站地图", "隐私政策",
+    # 英文词典/模板页
+    "dictionary", "definition", "pronunciation", "plural of", "noun", "verb",
+    "adjective", "adverb", "ipa", "etymology",
+    # 网站通用模板
+    "加入收藏", "网站地图", "隐私政策", "All rights reserved",
+    "Sign in", "Privacy policy", "Terms of Use", "Too many requests",
+    "captcha", "verify you are human",
 ]
 
 
 def _is_garbage(text: str) -> bool:
-    return any(m in text for m in GARBAGE_MARKS)
+    t = text.lower()
+    return any(m in t for m in GARBAGE_MARKS)
 
 
-def _is_chinese(text: str) -> bool:
-    """判断摘要是否为有效中文内容（海外服务器可能返回英文垃圾）"""
-    if not text:
+def _is_valid_summary(text: str) -> bool:
+    """判断摘要是否有效：中英文皆可，但必须有一定内容量且非垃圾"""
+    if not text or len(text) < 25:
         return False
-    cn_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
-    return cn_chars >= max(6, len(text) * 0.3) and not _is_garbage(text)
+    if _is_garbage(text):
+        return False
+    cn = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+    en = sum(1 for c in text if c.isascii() and c.isalpha())
+    return (cn + en) >= max(12, len(text) * 0.35)
 
 
 def _clean_snippet(raw: str) -> str:
@@ -165,20 +176,42 @@ def _fetch_weibo(keyword: str) -> str:
     return ""
 
 
+def _fetch_wikipedia(keyword: str, lang: str = "en") -> str:
+    """维基百科一句话描述（en/zh），对知名人物/事件质量极高"""
+    url = ("https://%s.wikipedia.org/w/api.php?action=opensearch&search=%s"
+           "&limit=1&format=json" % (lang, urllib.parse.quote(keyword)))
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "WeiboDailyReport/1.0 (personal project; contact: none)",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8", "ignore"))
+    # opensearch 返回 [query, [标题], [描述], [链接]]
+    descs = data[2] if isinstance(data, list) and len(data) > 2 else []
+    for d in descs:
+        if d and len(d) >= 20:
+            return _clean_snippet(d)
+    print(f"    [wiki{lang}] {keyword[:20]}: 无描述, data={str(data)[:100]!r}", file=sys.stderr)
+    return ""
+
+
 def fetch_summary(keyword: str) -> str:
-    """多源抓取热搜解读（重质不重量）：
-    1. 微博官方搜索（原文最准）
-    2. 必应限定微博域名
-    3. 必应普通搜索
-    4. DuckDuckGo 兜底
-    只保留中文结果，全失败返回空（报告里有详情链接兜底）"""
+    """多源抓取热搜解读（重质不重量，中英文皆可）：
+    1. 微博官方搜索（中文原文最准）
+    2. 维基百科英文（人物/事件权威）
+    3. 维基百科中文
+    4. 必应限定微博域名
+    5. 必应普通搜索
+    6. DuckDuckGo 兜底
+    只保留有效内容（非垃圾），全失败返回空（报告里有详情链接兜底）"""
     for fetcher, args in ((_fetch_weibo, (keyword,)),
+                          (_fetch_wikipedia, (keyword, "en")),
+                          (_fetch_wikipedia, (keyword, "zh")),
                           (_fetch_bing, (keyword, "weibo.com")),
                           (_fetch_bing, (keyword, "")),
                           (_fetch_duckduckgo, (keyword,))):
         try:
             text = fetcher(*args)
-            if _is_chinese(text):
+            if _is_valid_summary(text):
                 return text
         except Exception:
             pass  # 抓不到就算了，报告里有详情链接兜底
