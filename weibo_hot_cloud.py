@@ -128,9 +128,34 @@ def _fetch_duckduckgo(keyword: str) -> str:
     return _clean_snippet(m.group(1))
 
 
+def _fetch_weibo(keyword: str) -> str:
+    """微博搜索接口（云端与热搜API同域，可访问），拿第一条微博原文作摘要"""
+    url = ("https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D1%26q="
+           + urllib.parse.quote(keyword))
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                      "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://m.weibo.cn/",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8", "ignore"))
+    cards = data.get("data", {}).get("cards", []) if data.get("ok") else []
+    for c in cards:
+        mblog = c.get("mblog")
+        if not mblog:
+            continue
+        text = re.sub(r"<[^>]+>", "", mblog.get("text", "") or "")
+        text = re.sub(r"#.*?#", "", text).strip()  # 去掉话题标签
+        if len(text) >= 8:
+            return text[:110]
+    print(f"    [wb] {keyword[:20]}: 无有效微博, ok={data.get('ok')}, cards={len(cards)}", file=sys.stderr)
+    return ""
+
+
 def fetch_summary(keyword: str) -> str:
-    """双引擎抓取热搜解读：必应优先，DuckDuckGo 兜底，只保留中文结果"""
-    for fetcher in (_fetch_bing, _fetch_duckduckgo):
+    """三引擎抓取热搜解读：微博原文>必应>DuckDuckGo，只保留中文结果"""
+    for fetcher in (_fetch_weibo, _fetch_bing, _fetch_duckduckgo):
         try:
             text = fetcher(keyword)
             if _is_chinese(text):
