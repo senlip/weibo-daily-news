@@ -75,12 +75,25 @@ def fetch_hot():
     return realtime, hotgov
 
 
+# 垃圾摘要特征（词典释义、银行导航页等与热搜无关的干扰结果）
+GARBAGE_MARKS = [
+    "汉语一", "汉语二", "通用规范汉字", "说文解字", "康熙字典", "甲骨文",
+    "六书", "读作", "读为", "音切", "本义为", "始见于",
+    "外汇牌价", "存/贷款利率", "CFETS", "远期外汇", "债券指数",
+    "加入收藏", "网站地图", "隐私政策",
+]
+
+
+def _is_garbage(text: str) -> bool:
+    return any(m in text for m in GARBAGE_MARKS)
+
+
 def _is_chinese(text: str) -> bool:
     """判断摘要是否为有效中文内容（海外服务器可能返回英文垃圾）"""
     if not text:
         return False
     cn_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
-    return cn_chars >= max(6, len(text) * 0.3)
+    return cn_chars >= max(6, len(text) * 0.3) and not _is_garbage(text)
 
 
 def _clean_snippet(raw: str) -> str:
