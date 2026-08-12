@@ -7,7 +7,10 @@
 """
 import json
 import os
+import re
 import sys
+import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -72,11 +75,39 @@ def fetch_hot():
     return realtime, hotgov
 
 
+def fetch_summary(keyword: str) -> str:
+    """用必应搜索抓取热搜词的一句话解读（标题党克星）"""
+    url = "https://cn.bing.com/search?q=" + urllib.parse.quote(keyword)
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", "ignore")
+        m = re.search(r'<p class="b_lineclamp[^"]*"[^>]*>(.*?)</p>', html, re.S)
+        if m:
+            text = re.sub(r"<[^>]+>", "", m.group(1))
+            text = (text.replace("&ensp;", " ").replace("&#0183;", "·")
+                        .replace("&amp;", "&").replace("&nbsp;", " "))
+            text = re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"^\d{4}年\d{1,2}月\d{1,2}日\s*·?\s*", "", text)
+            text = re.sub(r"^\d+\s*小时?之前\s*·?\s*", "", text)
+            text = re.sub(r"^(央视网消息|新华网消息|人民日报|财新)[:：]\s*", "", text)
+            return text[:110]
+    except Exception:
+        pass
+    return ""
+
+
 def build_html(hot_list, pinned, date_str) -> str:
     rows = ""
     for i, h in enumerate(hot_list, 1):
         cat = categorize(h["title"])
-        rows += f"""<tr><td>{i}</td><td class="title">{h['title']}</td>
+        summary = h.get("summary", "")
+        summary_html = (f'<div class="summary">{summary}</div>' if summary
+                        else '<div class="summary none">暂无解读</div>')
+        rows += f"""<tr><td>{i}</td><td class="title">{h['title']}{summary_html}</td>
         <td><span class="cat">{cat}</span></td><td class="heat">{h['heat']}</td></tr>"""
     pinned_rows = ""
     for p in pinned:
@@ -96,6 +127,8 @@ table {{ width:100%; border-collapse:collapse; font-size:13.5px; }}
 th,td {{ padding:9px 12px; text-align:left; border-bottom:1px solid #eee; }}
 th {{ background:#fafafa; font-weight:600; }}
 .title {{ font-weight:500; }}
+.summary {{ font-size:12px; color:#999; font-weight:400; margin-top:3px; line-height:1.5; }}
+.summary.none {{ color:#ddd; }}
 .heat {{ color:#e64340; font-weight:600; }}
 .cat {{ background:#f0f5ff; color:#1677ff; font-size:12px; padding:2px 8px; border-radius:8px; }}
 .tag-row td {{ background:#fffbe6; }}
@@ -212,6 +245,14 @@ def main():
             "note": item.get("note") or "",
         })
     ranked = sorted(ranked, key=lambda x: x["rank"])[:TOP_N]
+
+    # 给每条热搜抓一句话解读（标题党克星），失败不阻塞
+    print("📝 正在抓取热搜解读...")
+    for r in ranked:
+        r["summary"] = fetch_summary(r["title"])
+        time.sleep(0.5)  # 控制频率，避免被搜索引擎风控
+    ok_count = sum(1 for r in ranked if r.get("summary"))
+    print(f"   解读完成: {ok_count}/{len(ranked)} 条")
 
     pinned = []
     if hotgov:
