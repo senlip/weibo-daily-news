@@ -132,13 +132,35 @@ def _fetch_duckduckgo(keyword: str) -> str:
     return _clean_snippet(m.group(1))
 
 
+def _fetch_weibo(keyword: str) -> str:
+    """微博官方搜索接口（与热搜API同域 weibo.com/ajax，云端可达），拿微博原文作摘要"""
+    url = "https://weibo.com/ajax/statuses/search?keyword=" + urllib.parse.quote(keyword)
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Referer": "https://weibo.com/",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8", "ignore"))
+    statuses = data.get("data", {}).get("statuses", []) if data.get("ok") else []
+    for s in statuses:
+        text = re.sub(r"<[^>]+>", "", s.get("text_raw") or s.get("text") or "")
+        text = re.sub(r"#.*?#", "", text).strip()
+        if len(text) >= 8:
+            return text[:110]
+    print(f"    [wb] {keyword[:20]}: 无有效微博, ok={data.get('ok')}, n={len(statuses)}", file=sys.stderr)
+    return ""
+
+
 def fetch_summary(keyword: str) -> str:
-    """四步抓取热搜解读（重质不重量）：
-    1. 必应限定微博域名（最准，直接看微博原讨论）
-    2. 必应普通搜索
-    3. DuckDuckGo 兜底
+    """多源抓取热搜解读（重质不重量）：
+    1. 微博官方搜索（原文最准）
+    2. 必应限定微博域名
+    3. 必应普通搜索
+    4. DuckDuckGo 兜底
     只保留中文结果，全失败返回空（报告里有详情链接兜底）"""
-    for fetcher, args in ((_fetch_bing, (keyword, "weibo.com")),
+    for fetcher, args in ((_fetch_weibo, (keyword,)),
+                          (_fetch_bing, (keyword, "weibo.com")),
                           (_fetch_bing, (keyword, "")),
                           (_fetch_duckduckgo, (keyword,))):
         try:
