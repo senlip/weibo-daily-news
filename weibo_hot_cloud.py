@@ -97,8 +97,9 @@ def fetch_summary(keyword: str) -> str:
             text = re.sub(r"^\d+\s*小时?之前\s*·?\s*", "", text)
             text = re.sub(r"^(央视网消息|新华网消息|人民日报|财新)[:：]\s*", "", text)
             return text[:110]
-    except Exception:
-        pass
+        print(f"    [summary][{keyword[:20]}] 未匹配到摘要, HTML长度={len(html)}, 开头={html[:100]!r}", file=sys.stderr)
+    except Exception as e:
+        print(f"    [summary][{keyword[:20]}] 异常: {type(e).__name__}: {e}", file=sys.stderr)
     return ""
 
 
