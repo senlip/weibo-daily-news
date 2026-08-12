@@ -9,7 +9,14 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+def beijing_now() -> datetime:
+    """当前北京时间（云端 runner 是 UTC，固定 +8）"""
+    return datetime.now(BEIJING_TZ)
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
 API_URL = "https://weibo.com/ajax/side/hotSearch"
@@ -95,7 +102,7 @@ th {{ background:#fafafa; font-weight:600; }}
 .note {{ color:#999; font-size:12px; text-align:center; margin-top:16px; }}
 </style></head><body>
 <h1>📰 微博新鲜事 · {date_str}</h1>
-<p class="sub">数据来源: 微博实时热搜榜 | 抓取时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+<p class="sub">数据来源: 微博实时热搜榜 | 抓取时间: {beijing_now().strftime('%Y-%m-%d %H:%M')} (北京时间)</p>
 <div class="card"><h2>📌 今日要闻/置顶</h2>
 <table><thead><tr><th>内容</th><th>标记</th></tr></thead><tbody>{pinned_rows or '<tr><td colspan=2>无</td></tr>'}</tbody></table></div>
 <div class="card"><h2>🔥 热搜 TOP {len(hot_list)}</h2>
@@ -112,13 +119,13 @@ def build_index(report_files) -> str:
         name, mtime = report_files[0]
         latest_block = (
             '<div class="latest"><span class="tag">最新报告</span>'
-            '<a href="/{name}.html">📌 {name} 微博热搜</a>'
+            '<a href="{name}.html">📌 {name} 微博热搜</a>'
             '<div class="meta">更新时间 {mtime}</div></div>'
         ).format(name=name, mtime=mtime)
     items = ""
     for name, mtime in report_files[1:]:
         items += (
-            '<a class="item" href="/{name}.html">'
+            '<a class="item" href="{name}.html">'
             '<div><div class="date">{name}</div>'
             '<div class="time">{mtime}</div></div>'
             '<div class="arrow">›</div></a>'
@@ -178,7 +185,7 @@ a { text-decoration:none; }
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = beijing_now().strftime("%Y-%m-%d")
 
     realtime, hotgov = fetch_hot()
 
@@ -227,7 +234,7 @@ def main():
     for f in sorted(os.listdir(OUT_DIR)):
         if f.endswith(".html") and f != "index.html":
             fp = os.path.join(OUT_DIR, f)
-            mtime = datetime.fromtimestamp(os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M")
+            mtime = datetime.fromtimestamp(os.path.getmtime(fp), BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
             report_files.append((f[:-5], mtime))
     report_files.sort(key=lambda x: x[0], reverse=True)
     with open(os.path.join(OUT_DIR, "index.html"), "w", encoding="utf-8") as f:
