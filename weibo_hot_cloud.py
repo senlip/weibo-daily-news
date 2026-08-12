@@ -23,7 +23,7 @@ def beijing_now() -> datetime:
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
 API_URL = "https://weibo.com/ajax/side/hotSearch"
-TOP_N = 20
+TOP_N = 10  # 报告展示多少条热搜（重质不重量）
 
 # 热搜分类标签(根据标题关键词归类)
 CATEGORY_RULES = [
@@ -94,8 +94,10 @@ def _clean_snippet(raw: str) -> str:
     return text[:110]
 
 
-def _fetch_bing(keyword: str) -> str:
-    url = ("https://www.bing.com/search?q=" + urllib.parse.quote(keyword)
+def _fetch_bing(keyword: str, site: str = "") -> str:
+    """必应搜索。site 指定时限定域名（如 weibo.com 拿微博原文），提高中文命中率"""
+    query = urllib.parse.quote(keyword + ((" site:%s" % site) if site else ""))
+    url = ("https://www.bing.com/search?q=" + query
            + "&cc=cn&mkt=zh-CN&setlang=zh-hans")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -106,7 +108,7 @@ def _fetch_bing(keyword: str) -> str:
         html = resp.read().decode("utf-8", "ignore")
     m = re.search(r'<p class="b_lineclamp[^"]*"[^>]*>(.*?)</p>', html, re.S)
     if not m:
-        print(f"    [bing] {keyword[:20]}: 无b_lineclamp, len={len(html)}, 开头={html[:120]!r}", file=sys.stderr)
+        print(f"    [bing{('+'+site) if site else ''}] {keyword[:20]}: 无b_lineclamp, len={len(html)}", file=sys.stderr)
         return ""
     return _clean_snippet(m.group(1))
 
@@ -131,10 +133,16 @@ def _fetch_duckduckgo(keyword: str) -> str:
 
 
 def fetch_summary(keyword: str) -> str:
-    """双引擎抓取热搜解读：必应>DuckDuckGo，只保留中文结果，失败静默返回空"""
-    for fetcher in (_fetch_bing, _fetch_duckduckgo):
+    """四步抓取热搜解读（重质不重量）：
+    1. 必应限定微博域名（最准，直接看微博原讨论）
+    2. 必应普通搜索
+    3. DuckDuckGo 兜底
+    只保留中文结果，全失败返回空（报告里有详情链接兜底）"""
+    for fetcher, args in ((_fetch_bing, (keyword, "weibo.com")),
+                          (_fetch_bing, (keyword, "")),
+                          (_fetch_duckduckgo, (keyword,))):
         try:
-            text = fetcher(keyword)
+            text = fetcher(*args)
             if _is_chinese(text):
                 return text
         except Exception:
