@@ -77,9 +77,9 @@ def fetch_hot():
 
 def fetch_summary(keyword: str) -> str:
     """用必应搜索抓取热搜词的一句话解读（标题党克星）
-    用国际版域名+中文市场参数，保证国内外的服务器都能拿到中文摘要"""
+    用国际版域名+强制中文市场参数，保证国内外的服务器都能拿到中文摘要"""
     url = ("https://www.bing.com/search?q=" + urllib.parse.quote(keyword)
-           + "&mkt=zh-CN&setlang=zh-hans")
+           + "&cc=cn&mkt=zh-CN&setlang=zh-hans")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -96,6 +96,11 @@ def fetch_summary(keyword: str) -> str:
             text = re.sub(r"^\d{4}年\d{1,2}月\d{1,2}日\s*·?\s*", "", text)
             text = re.sub(r"^\d+\s*小时?之前\s*·?\s*", "", text)
             text = re.sub(r"^(央视网消息|新华网消息|人民日报|财新)[:：]\s*", "", text)
+            # 中文字符占比过滤：海外服务器可能返回英文结果，非中文摘要丢弃
+            cn_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+            if cn_chars < max(6, len(text) * 0.3):
+                print(f"    [summary][{keyword[:20]}] 非中文结果已丢弃: {text[:60]!r}", file=sys.stderr)
+                return ""
             return text[:110]
         print(f"    [summary][{keyword[:20]}] 未匹配到摘要, HTML长度={len(html)}, 开头={html[:100]!r}", file=sys.stderr)
     except Exception as e:
