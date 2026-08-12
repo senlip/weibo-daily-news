@@ -186,11 +186,25 @@ def _fetch_wikipedia(keyword: str, lang: str = "en") -> str:
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = json.loads(resp.read().decode("utf-8", "ignore"))
     # opensearch 返回 [query, [标题], [描述], [链接]]
-    descs = data[2] if isinstance(data, list) and len(data) > 2 else []
-    for d in descs:
-        if d and len(d) >= 20:
-            return _clean_snippet(d)
-    print(f"    [wiki{lang}] {keyword[:20]}: 无描述, data={str(data)[:100]!r}", file=sys.stderr)
+    if isinstance(data, list) and len(data) > 2 and data[1]:
+        title = data[1][0]
+        desc = (data[2] or [""])[0]
+        if len(desc) >= 20:
+            return _clean_snippet(desc)
+        # 描述为空时用 REST summary 接口补取正文摘要
+        try:
+            surl = ("https://%s.wikipedia.org/api/rest_v1/page/summary/%s"
+                    % (lang, urllib.parse.quote(title)))
+            sreq = urllib.request.Request(surl, headers={
+                "User-Agent": "WeiboDailyReport/1.0 (personal project)"})
+            with urllib.request.urlopen(sreq, timeout=15) as sresp:
+                sdata = json.loads(sresp.read().decode("utf-8", "ignore"))
+            extract = sdata.get("extract") or ""
+            if len(extract) >= 20:
+                return _clean_snippet(extract)
+        except Exception:
+            pass
+    print(f"    [wiki{lang}] {keyword[:20]}: 无有效内容", file=sys.stderr)
     return ""
 
 
