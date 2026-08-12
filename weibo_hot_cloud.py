@@ -130,41 +130,21 @@ def _fetch_duckduckgo(keyword: str) -> str:
     return _clean_snippet(m.group(1))
 
 
-def _fetch_weibo(keyword: str) -> str:
-    """RSSHub 微博搜索（海外可达），拿最新微博原文作摘要"""
-    url = "https://rsshub.app/weibo/search/" + urllib.parse.quote(keyword)
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        xml = resp.read().decode("utf-8", "ignore")
-    items = re.findall(r"<item>(.*?)</item>", xml, re.S)
-    for it in items:
-        desc = re.findall(r"<description>(.*?)</description>", it, re.S)
-        if not desc:
-            continue
-        text = re.sub(r"<[^>]+>", "", desc[0])
-        text = re.sub(r"&[a-z]+;", " ", text)
-        text = re.sub(r"#.*?#", "", text).strip()
-        if len(text) >= 8:
-            return text[:110]
-    print(f"    [wb] {keyword[:20]}: RSSHub无有效微博, items={len(items)}", file=sys.stderr)
-    return ""
-
-
 def fetch_summary(keyword: str) -> str:
-    """三引擎抓取热搜解读：微博原文>必应>DuckDuckGo，只保留中文结果"""
-    for fetcher in (_fetch_weibo, _fetch_bing, _fetch_duckduckgo):
+    """双引擎抓取热搜解读：必应>DuckDuckGo，只保留中文结果，失败静默返回空"""
+    for fetcher in (_fetch_bing, _fetch_duckduckgo):
         try:
             text = fetcher(keyword)
             if _is_chinese(text):
                 return text
-            if text:
-                print(f"    [summary][{keyword[:20]}] 非中文结果已丢弃: {text[:60]!r}", file=sys.stderr)
-        except Exception as e:
-            print(f"    [summary][{keyword[:20]}] 异常: {type(e).__name__}: {e}", file=sys.stderr)
+        except Exception:
+            pass  # 抓不到就算了，报告里有详情链接兜底
     return ""
+
+
+def weibo_link(title: str) -> str:
+    """构造微博话题搜索链接（手机端友好）"""
+    return ("https://s.weibo.com/weibo?q=" + urllib.parse.quote("#%s#" % title))
 
 
 def build_html(hot_list, pinned, date_str) -> str:
@@ -172,8 +152,13 @@ def build_html(hot_list, pinned, date_str) -> str:
     for i, h in enumerate(hot_list, 1):
         cat = categorize(h["title"])
         summary = h.get("summary", "")
-        summary_html = (f'<div class="summary">{summary}</div>' if summary
-                        else '<div class="summary none">暂无解读</div>')
+        link = weibo_link(h["title"])
+        if summary:
+            summary_html = (f'<div class="summary">{summary}</div>'
+                            f'<div class="detail"><a href="{link}" target="_blank">📖 查看详情 ›</a></div>')
+        else:
+            summary_html = (f'<div class="summary none">暂无解读</div>'
+                            f'<div class="detail"><a href="{link}" target="_blank">📖 点开看原话题 ›</a></div>')
         rows += f"""<tr><td>{i}</td><td class="title">{h['title']}{summary_html}</td>
         <td><span class="cat">{cat}</span></td><td class="heat">{h['heat']}</td></tr>"""
     pinned_rows = ""
@@ -196,6 +181,8 @@ th {{ background:#fafafa; font-weight:600; }}
 .title {{ font-weight:500; }}
 .summary {{ font-size:12px; color:#999; font-weight:400; margin-top:3px; line-height:1.5; }}
 .summary.none {{ color:#ddd; }}
+.detail {{ font-size:12px; margin-top:3px; }}
+.detail a {{ color:#1677ff; text-decoration:none; }}
 .heat {{ color:#e64340; font-weight:600; }}
 .cat {{ background:#f0f5ff; color:#1677ff; font-size:12px; padding:2px 8px; border-radius:8px; }}
 .tag-row td {{ background:#fffbe6; }}
