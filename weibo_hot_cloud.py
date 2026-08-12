@@ -112,8 +112,8 @@ def _fetch_bing(keyword: str) -> str:
 
 
 def _fetch_duckduckgo(keyword: str) -> str:
-    """DuckDuckGo 海外可达，中文区域参数 kl=cn-zh"""
-    url = ("https://lite.duckduckgo.com/lite/?q=" + urllib.parse.quote(keyword)
+    """DuckDuckGo html 版（海外可达），中文区域参数 kl=cn-zh"""
+    url = ("https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(keyword)
            + "&kl=cn-zh")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -121,35 +121,35 @@ def _fetch_duckduckgo(keyword: str) -> str:
     })
     with urllib.request.urlopen(req, timeout=15) as resp:
         html = resp.read().decode("utf-8", "ignore")
-    m = re.search(r'<td class="result-snippet">(.*?)</td>', html, re.S)
+    m = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', html, re.S)
     if not m:
-        print(f"    [ddg] {keyword[:20]}: 无result-snippet, len={len(html)}, 开头={html[:120]!r}", file=sys.stderr)
+        m = re.search(r'<td class="result-snippet">(.*?)</td>', html, re.S)
+    if not m:
+        print(f"    [ddg] {keyword[:20]}: 无摘要, len={len(html)}, 开头={html[:120]!r}", file=sys.stderr)
         return ""
     return _clean_snippet(m.group(1))
 
 
 def _fetch_weibo(keyword: str) -> str:
-    """微博搜索接口（云端与热搜API同域，可访问），拿第一条微博原文作摘要"""
-    url = ("https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D1%26q="
-           + urllib.parse.quote(keyword))
+    """RSSHub 微博搜索（海外可达），拿最新微博原文作摘要"""
+    url = "https://rsshub.app/weibo/search/" + urllib.parse.quote(keyword)
     req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-                      "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://m.weibo.cn/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     })
     with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8", "ignore"))
-    cards = data.get("data", {}).get("cards", []) if data.get("ok") else []
-    for c in cards:
-        mblog = c.get("mblog")
-        if not mblog:
+        xml = resp.read().decode("utf-8", "ignore")
+    items = re.findall(r"<item>(.*?)</item>", xml, re.S)
+    for it in items:
+        desc = re.findall(r"<description>(.*?)</description>", it, re.S)
+        if not desc:
             continue
-        text = re.sub(r"<[^>]+>", "", mblog.get("text", "") or "")
-        text = re.sub(r"#.*?#", "", text).strip()  # 去掉话题标签
+        text = re.sub(r"<[^>]+>", "", desc[0])
+        text = re.sub(r"&[a-z]+;", " ", text)
+        text = re.sub(r"#.*?#", "", text).strip()
         if len(text) >= 8:
             return text[:110]
-    print(f"    [wb] {keyword[:20]}: 无有效微博, ok={data.get('ok')}, cards={len(cards)}", file=sys.stderr)
+    print(f"    [wb] {keyword[:20]}: RSSHub无有效微博, items={len(items)}", file=sys.stderr)
     return ""
 
 
