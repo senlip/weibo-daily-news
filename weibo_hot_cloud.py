@@ -76,8 +76,10 @@ def fetch_hot():
 
 
 def fetch_summary(keyword: str) -> str:
-    """用必应搜索抓取热搜词的一句话解读（标题党克星）"""
-    url = "https://cn.bing.com/search?q=" + urllib.parse.quote(keyword)
+    """用必应搜索抓取热搜词的一句话解读（标题党克星）
+    用国际版域名+中文市场参数，保证国内外的服务器都能拿到中文摘要"""
+    url = ("https://www.bing.com/search?q=" + urllib.parse.quote(keyword)
+           + "&mkt=zh-CN&setlang=zh-hans")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
