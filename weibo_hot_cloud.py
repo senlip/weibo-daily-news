@@ -233,8 +233,9 @@ def fetch_summary(keyword: str) -> str:
 
 
 def weibo_link(title: str) -> str:
-    """构造微博话题搜索链接（手机端友好）"""
-    return ("https://s.weibo.com/weibo?q=" + urllib.parse.quote("#%s#" % title))
+    """构造详情链接：必应搜索（手机直接可开）。
+    注意：微博 s.weibo.com / m.weibo.cn 链接会跳转到访客验证页拦截手机浏览器，不能用"""
+    return "https://cn.bing.com/search?q=" + urllib.parse.quote(title)
 
 
 def build_html(hot_list, pinned, date_str) -> str:
