@@ -75,36 +75,66 @@ def fetch_hot():
     return realtime, hotgov
 
 
-def fetch_summary(keyword: str) -> str:
-    """用必应搜索抓取热搜词的一句话解读（标题党克星）
-    用国际版域名+强制中文市场参数，保证国内外的服务器都能拿到中文摘要"""
+def _is_chinese(text: str) -> bool:
+    """判断摘要是否为有效中文内容（海外服务器可能返回英文垃圾）"""
+    if not text:
+        return False
+    cn_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+    return cn_chars >= max(6, len(text) * 0.3)
+
+
+def _clean_snippet(raw: str) -> str:
+    text = re.sub(r"<[^>]+>", "", raw)
+    text = (text.replace("&ensp;", " ").replace("&#0183;", "·")
+                .replace("&amp;", "&").replace("&nbsp;", " "))
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"^\d{4}年\d{1,2}月\d{1,2}日\s*·?\s*", "", text)
+    text = re.sub(r"^\d+\s*小时?之前\s*·?\s*", "", text)
+    text = re.sub(r"^(央视网消息|新华网消息|人民日报|财新)[:：]\s*", "", text)
+    return text[:110]
+
+
+def _fetch_bing(keyword: str) -> str:
     url = ("https://www.bing.com/search?q=" + urllib.parse.quote(keyword)
-           + "&cc=cn&mkt=zh-CN&setlang=zh-hans")
+           + "&cc=cn&mkt=zh-CN&setlang=zh-hans&ensearch=0")
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    })
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        html = resp.read().decode("utf-8", "ignore")
+    m = re.search(r'<p class="b_lineclamp[^"]*"[^>]*>(.*?)</p>', html, re.S)
+    return _clean_snippet(m.group(1)) if m else ""
+
+
+def _fetch_duckduckgo(keyword: str) -> str:
+    """DuckDuckGo 海外可达，中文区域参数 kl=cn-zh"""
+    url = ("https://lite.duckduckgo.com/lite/?q=" + urllib.parse.quote(keyword)
+           + "&kl=cn-zh")
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", "ignore")
-        m = re.search(r'<p class="b_lineclamp[^"]*"[^>]*>(.*?)</p>', html, re.S)
-        if m:
-            text = re.sub(r"<[^>]+>", "", m.group(1))
-            text = (text.replace("&ensp;", " ").replace("&#0183;", "·")
-                        .replace("&amp;", "&").replace("&nbsp;", " "))
-            text = re.sub(r"\s+", " ", text).strip()
-            text = re.sub(r"^\d{4}年\d{1,2}月\d{1,2}日\s*·?\s*", "", text)
-            text = re.sub(r"^\d+\s*小时?之前\s*·?\s*", "", text)
-            text = re.sub(r"^(央视网消息|新华网消息|人民日报|财新)[:：]\s*", "", text)
-            # 中文字符占比过滤：海外服务器可能返回英文结果，非中文摘要丢弃
-            cn_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
-            if cn_chars < max(6, len(text) * 0.3):
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        html = resp.read().decode("utf-8", "ignore")
+    m = re.search(r'<td class="result-snippet">(.*?)</td>', html, re.S)
+    if not m:
+        m = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', html, re.S)
+    return _clean_snippet(m.group(1)) if m else ""
+
+
+def fetch_summary(keyword: str) -> str:
+    """双引擎抓取热搜解读：必应优先，DuckDuckGo 兜底，只保留中文结果"""
+    for fetcher in (_fetch_bing, _fetch_duckduckgo):
+        try:
+            text = fetcher(keyword)
+            if _is_chinese(text):
+                return text
+            if text:
                 print(f"    [summary][{keyword[:20]}] 非中文结果已丢弃: {text[:60]!r}", file=sys.stderr)
-                return ""
-            return text[:110]
-        print(f"    [summary][{keyword[:20]}] 未匹配到摘要, HTML长度={len(html)}, 开头={html[:100]!r}", file=sys.stderr)
-    except Exception as e:
-        print(f"    [summary][{keyword[:20]}] 异常: {type(e).__name__}: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"    [summary][{keyword[:20]}] 异常: {type(e).__name__}: {e}", file=sys.stderr)
     return ""
 
 
